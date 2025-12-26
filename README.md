@@ -1,1 +1,1 @@
-# min_piecewise
+# mini_piecewise
