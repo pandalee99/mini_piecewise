@@ -4,7 +4,7 @@ This test module validates the correctness of the CUDA graph
 framework with a real Qwen3-0.6B-Base model.
 
 Usage:
-    cd /vllm-workspace/mini_piecewise
+    cd mini_piecewise
     pytest -v tests/test_qwen3_model.py
 
 Or run directly:

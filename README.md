@@ -16,7 +16,7 @@ A minimal framework for CUDA graph optimization in LLM inference. Provides two a
 ## Installation
 
 ```bash
-cd /vllm-workspace/mini_piecewise
+cd mini_piecewise
 pip install -e .
 ```
 
