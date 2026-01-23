@@ -1,18 +1,9 @@
-"""Minimal SGLang-style piecewise FX split + hybrid CUDA Graph runner.
+"""Example scripts demonstrating min_piecewise usage.
 
-This package is intentionally small:
-- FX split a large forward into pieces
-- Keep attention pieces eager
-- Capture CUDA Graph for "safe" pieces
+This module provides example scripts for learning how to use the
+piecewise CUDA graph framework:
 
-The focus is clarity and correctness for a minimal prototype.
+- llm_block.py: Simple LLM block example
+- multi_layer_llm.py: Multi-layer LLM example
+- custom_attention.py: Custom attention detection example
 """
-
-from .config import PiecewiseHybridConfig
-from .hybrid import PiecewiseHybridModel, make_piecewise_hybrid_model
-
-__all__ = [
-    "PiecewiseHybridConfig",
-    "PiecewiseHybridModel",
-    "make_piecewise_hybrid_model",
-]

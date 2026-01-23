@@ -1,8 +1,14 @@
 import pytest
 import torch
 
-from sglang_min_piecewise import PiecewiseHybridConfig, make_piecewise_hybrid_model
-from sglang_min_piecewise.cudagraph_backend import CUDAGraphPiece
+# Support running tests both with and without package installation
+try:
+    from min_piecewise import PiecewiseHybridConfig, make_piecewise_hybrid_model
+    from min_piecewise.cudagraph_backend import CUDAGraphPiece
+except ImportError:
+    # When running from within the package directory
+    from . import PiecewiseHybridConfig, make_piecewise_hybrid_model
+    from .cudagraph_backend import CUDAGraphPiece
 
 
 class ToyAttention(torch.nn.Module):
