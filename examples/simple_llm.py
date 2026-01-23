@@ -1,40 +1,38 @@
 #!/usr/bin/env python3
-"""Simple LLM Block Example.
+"""Simple LLM Block Example (Piecewise FX approach).
 
-This example demonstrates the basic usage of min_piecewise with a simple
-LLM-style transformer block. It shows how:
+This example demonstrates the FX-based piecewise CUDA graph approach
+with a simple LLM-style transformer block. This approach works for
+models that can be traced by torch.fx.
 
-1. The framework automatically detects attention modules
-2. Attention is kept eager while other parts use CUDA graphs
-3. Different sequence lengths use different captured graphs (buckets)
+For HuggingFace models (which have dynamic control flow), use the
+HFCudaGraphRunner approach instead - see qwen3_example.py.
+
+Key concepts:
+1. torch.fx traces the model into a graph
+2. Attention modules are automatically detected and kept eager
+3. Other parts use CUDA graphs for faster execution
 
 Usage:
-    python -m examples.llm_block
+    cd /vllm-workspace/mini_piecewise
+    python examples/simple_llm.py
 """
 
 from __future__ import annotations
 
+import sys
+sys.path.insert(0, "/vllm-workspace/mini_piecewise")
+
 import torch
 import torch.nn as nn
 
-# Support running from different locations
-try:
-    from min_piecewise import (
-        PiecewiseHybridConfig,
-        make_piecewise_hybrid_model,
-    )
-except ImportError:
-    from .. import (
-        PiecewiseHybridConfig,
-        make_piecewise_hybrid_model,
-    )
+from src import PiecewiseHybridConfig, make_piecewise_hybrid_model
 
 
 class SimpleAttention(nn.Module):
     """A simple self-attention module.
 
-    This module contains 'Attention' in its class name, so it will be
-    automatically detected and kept eager.
+    Contains 'Attention' in class name for automatic detection.
     """
 
     def __init__(self, hidden_size: int, num_heads: int = 4):
@@ -116,15 +114,11 @@ class SimpleLLM(nn.Module):
 
 def main():
     print("=" * 60)
-    print(" min_piecewise: Simple LLM Block Example")
+    print(" Piecewise CUDA Graph: Simple LLM Example")
     print("=" * 60)
 
-    # Check CUDA availability
     if not torch.cuda.is_available():
         print("\nCUDA is not available. This example requires CUDA.")
-        print("Running CPU-only demo to show API usage...\n")
-        device = torch.device("cpu")
-        run_cpu_demo()
         return
 
     device = torch.device("cuda")
@@ -141,20 +135,14 @@ def main():
     # Step 1: Create configuration
     config = PiecewiseHybridConfig.from_sizes(
         capture_sizes,
-        warmup_iters=2,        # Number of warmup iterations before capture
-        zero_pad_inputs=True,  # Zero-pad inputs smaller than bucket size
+        warmup_iters=2,
+        zero_pad_inputs=True,
     )
-    print(f"\nConfiguration:")
-    print(f"  capture_sizes: {config.capture_sizes}")
-    print(f"  warmup_iters: {config.warmup_iters}")
-    print(f"  zero_pad_inputs: {config.zero_pad_inputs}")
 
     # Step 2: Create example inputs function
-    # This function generates example inputs for each capture size
     def example_inputs_fn(static_size: int):
-        """Generate example inputs for a given sequence length."""
         input_ids = torch.zeros((static_size,), device=device, dtype=torch.long)
-        return (input_ids,)  # Return as tuple of args
+        return (input_ids,)
 
     # Step 3: Build the hybrid model
     print("\nBuilding hybrid model...")
@@ -165,7 +153,7 @@ def main():
         device=device,
     )
 
-    # Step 4: Examine the split structure
+    # Step 4: Show split structure
     print(f"\nFX split structure ({len(hybrid.items)} pieces):")
     for item in hybrid.items:
         mode = "EAGER (attention)" if item.is_attention_piece else "CUDA Graph"
@@ -181,63 +169,19 @@ def main():
     test_seq_lens = [5, 8, 12, 16, 30, 32, 50, 64]
 
     for seq_len in test_seq_lens:
-        # Create random input
         input_ids = torch.randint(0, 1000, (seq_len,), device=device, dtype=torch.long)
 
-        # Run with hybrid model (uses CUDA graph replay)
         with torch.inference_mode():
             output_hybrid = hybrid(input_ids)
-
-        # Run with original model for comparison
-        with torch.inference_mode():
             output_eager = model(input_ids)
 
-        # Verify correctness
         is_correct = torch.allclose(output_hybrid, output_eager, rtol=1e-4, atol=1e-4)
         status = "PASS" if is_correct else "FAIL"
 
-        # Find which bucket was used
         bucket_size = min(s for s in capture_sizes if s >= seq_len)
         print(f"  seq_len={seq_len:2d} -> bucket={bucket_size:2d}: {status}")
 
-    print("\nExample completed successfully!")
-
-
-def run_cpu_demo():
-    """Run a CPU-only demo to show API usage."""
-    print("Creating model on CPU...")
-
-    model = SimpleLLM(vocab_size=100, hidden_size=32, num_heads=2)
-
-    print("\nNote: Piecewise CUDA Graph requires CUDA.")
-    print("On CPU, we can only demonstrate the FX tracing and splitting.\n")
-
-    # Show model structure
-    print("Model structure:")
-    for name, module in model.named_modules():
-        if name:
-            is_attn = "Attention" in module.__class__.__name__
-            marker = " <- will be kept EAGER" if is_attn else ""
-            print(f"  {name}: {module.__class__.__name__}{marker}")
-
-    print("\nAPI usage example (would require CUDA):")
-    print("""
-    # 1. Create config
-    config = PiecewiseHybridConfig.from_sizes([8, 16, 32])
-
-    # 2. Define example inputs function
-    def example_inputs_fn(static_size):
-        return (torch.zeros((static_size,), device="cuda", dtype=torch.long),)
-
-    # 3. Build hybrid model
-    hybrid = make_piecewise_hybrid_model(model, config, example_inputs_fn=example_inputs_fn)
-
-    # 4. Capture CUDA graphs
-    hybrid.capture()
-
-    # 5. Run inference
-    output = hybrid(input_ids)
-    """)
+    print("\nExample completed!")
 
 
 if __name__ == "__main__":

@@ -1,14 +1,17 @@
+"""Test piecewise CUDA graph with toy models.
+
+Tests the FX-based piecewise capture approach with simple models
+that can be traced by torch.fx.
+"""
+
 import pytest
 import torch
 
-# Support running tests both with and without package installation
-try:
-    from min_piecewise import PiecewiseHybridConfig, make_piecewise_hybrid_model
-    from min_piecewise.cudagraph_backend import CUDAGraphPiece
-except ImportError:
-    # When running from within the package directory
-    from . import PiecewiseHybridConfig, make_piecewise_hybrid_model
-    from .cudagraph_backend import CUDAGraphPiece
+import sys
+sys.path.insert(0, "/vllm-workspace/mini_piecewise")
+
+from src import PiecewiseHybridConfig, make_piecewise_hybrid_model
+from src.cudagraph_backend import CUDAGraphPiece
 
 
 class ToyAttention(torch.nn.Module):
@@ -46,11 +49,9 @@ class ToyModel(torch.nn.Module):
         return x
 
 
-@pytest.mark.optional
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
 def test_fx_split_and_hybrid_capture_matches_eager():
-    if not torch.cuda.is_available():
-        pytest.skip("CUDA is required")
-
+    """Test that piecewise hybrid model produces same output as eager."""
     torch.manual_seed(0)
 
     device = torch.device("cuda")

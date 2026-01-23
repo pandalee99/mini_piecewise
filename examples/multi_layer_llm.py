@@ -1,38 +1,36 @@
 #!/usr/bin/env python3
-"""Multi-Layer LLM Example.
+"""Multi-Layer LLM Example (Piecewise FX approach).
 
-This example demonstrates using min_piecewise with a multi-layer LLM model,
-showing how the framework handles multiple attention layers.
+This example demonstrates using the FX-based piecewise CUDA graph approach
+with a multi-layer LLM model. This approach works for models that can be
+traced by torch.fx.
 
-Key points:
+For HuggingFace models (which have dynamic control flow), use the
+HFCudaGraphRunner approach instead - see qwen3_example.py.
+
+Key concepts:
 - Each attention layer becomes a separate "eager" piece
 - All other computations (embedding, MLP, norms) are grouped into CUDA graph pieces
 - The framework automatically handles the stitching
 
 Usage:
-    python -m examples.multi_layer_llm
-    python -m examples.multi_layer_llm --num-layers 4 --hidden 256
+    cd /vllm-workspace/mini_piecewise
+    python examples/multi_layer_llm.py
+    python examples/multi_layer_llm.py --num-layers 4 --hidden 256
 """
 
 from __future__ import annotations
 
 import argparse
+import sys
 import time
+
+sys.path.insert(0, "/vllm-workspace/mini_piecewise")
 
 import torch
 import torch.nn as nn
 
-# Support running from different locations
-try:
-    from min_piecewise import (
-        PiecewiseHybridConfig,
-        make_piecewise_hybrid_model,
-    )
-except ImportError:
-    from .. import (
-        PiecewiseHybridConfig,
-        make_piecewise_hybrid_model,
-    )
+from src import PiecewiseHybridConfig, make_piecewise_hybrid_model
 
 
 class RMSNorm(nn.Module):
@@ -119,7 +117,6 @@ class DecoderLayer(nn.Module):
         self.mlp = MLP(hidden_size)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # Pre-norm with residual
         x = x + self.self_attn(self.input_norm(x))
         x = x + self.mlp(self.post_attn_norm(x))
         return x
@@ -157,16 +154,15 @@ class MultiLayerLLM(nn.Module):
 
 def main():
     parser = argparse.ArgumentParser(description="Multi-Layer LLM Example")
-    parser.add_argument("--vocab-size", type=int, default=10000, help="Vocabulary size")
-    parser.add_argument("--hidden", type=int, default=128, help="Hidden dimension")
-    parser.add_argument("--num-heads", type=int, default=4, help="Number of attention heads")
-    parser.add_argument("--num-layers", type=int, default=4, help="Number of layers")
-    parser.add_argument("--seq-lens", type=int, nargs="+", default=[16, 32, 64, 128],
-                        help="Sequence lengths to test")
+    parser.add_argument("--vocab-size", type=int, default=10000)
+    parser.add_argument("--hidden", type=int, default=128)
+    parser.add_argument("--num-heads", type=int, default=4)
+    parser.add_argument("--num-layers", type=int, default=4)
+    parser.add_argument("--seq-lens", type=int, nargs="+", default=[16, 32, 64, 128])
     args = parser.parse_args()
 
     print("=" * 60)
-    print(" min_piecewise: Multi-Layer LLM Example")
+    print(" Piecewise CUDA Graph: Multi-Layer LLM Example")
     print("=" * 60)
 
     if not torch.cuda.is_available():
@@ -211,10 +207,6 @@ def main():
     print(f"  Attention pieces (eager): {attn_count}")
     print(f"  CUDA Graph pieces: {cuda_count}")
 
-    for item in hybrid.items:
-        mode = "EAGER" if item.is_attention_piece else "GRAPH"
-        print(f"    {item.submod_name}: [{mode}]")
-
     # Capture
     print("\nCapturing CUDA graphs...")
     start = time.perf_counter()
@@ -234,7 +226,6 @@ def main():
 
         input_ids = torch.randint(0, args.vocab_size, (seq_len,), device=device, dtype=torch.long)
 
-        # Compare outputs
         with torch.inference_mode():
             out_hybrid = hybrid(input_ids)
             out_eager = model(input_ids)
