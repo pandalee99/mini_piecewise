@@ -20,8 +20,8 @@ import torch.nn as nn
 
 # Support running from different locations
 try:
-    from min_piecewise import PiecewiseHybridConfig, make_piecewise_hybrid_model
-    from min_piecewise.benchmarks.utils import (
+    from mini_piecewise import PiecewiseHybridConfig, make_piecewise_hybrid_model
+    from mini_piecewise.benchmarks.utils import (
         BenchmarkResult,
         BenchmarkTimer,
         format_comparison_table,

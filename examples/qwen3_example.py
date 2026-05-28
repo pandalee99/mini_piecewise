@@ -1,18 +1,12 @@
 #!/usr/bin/env python3
-"""Qwen3 with CUDA Graph Example.
+"""Qwen3 CUDA Graph optimization example.
 
-This example demonstrates how to use the mini_piecewise framework with a
-real Qwen3 model from HuggingFace.
+Demonstrates CudaGraphRunner with a real Qwen3-0.6B-Base model.
+CUDA graph capture eliminates kernel launch overhead by recording
+and replaying GPU operations as a single graph. Bucket-based sizing
+allows efficient handling of variable-length sequences.
 
-The CUDA graph approach:
-1. Captures CUDA graphs for different sequence lengths (buckets)
-2. Runtime sequences are padded to the nearest bucket size
-3. Graphs are replayed for faster inference
-
-Benefits:
-- Reduced kernel launch overhead (3-4x speedup)
-- Better GPU utilization
-- Works with dynamic sequence lengths via bucketing
+Speedup of 3-4x is typical on medium-length sequences.
 
 Usage:
     cd /vllm-workspace/mini_piecewise
@@ -21,18 +15,14 @@ Usage:
 
 from __future__ import annotations
 
-import sys
 import time
-
-# Add src to path
-sys.path.insert(0, "/vllm-workspace/mini_piecewise")
 
 
 def main():
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
-    from src import cudagraph_compile_hf, get_attention_modules
+    from mini_piecewise import cudagraph_compile_hf, CudaGraphRunner, get_attention_modules
 
     print("=" * 60)
     print(" Qwen3 + CUDA Graph Example")

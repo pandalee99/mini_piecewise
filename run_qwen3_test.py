@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """End-to-end test for mini_piecewise with Qwen3 model.
 
-This script demonstrates and validates the piecewise CUDA graph framework
-with a real Qwen3-0.6B-Base model.
+Validates correctness across multiple sequence lengths and provides
+optional latency benchmarking comparing eager vs CUDA graph execution.
 
 Usage:
     cd /vllm-workspace/mini_piecewise
@@ -82,9 +82,7 @@ def main():
         print("Install with: pip install transformers")
         sys.exit(1)
 
-    # Add src to path for imports
-    sys.path.insert(0, "/vllm-workspace/mini_piecewise")
-    from src.hf_wrapper import piecewise_compile_hf, get_attention_modules
+    from mini_piecewise import cudagraph_compile_hf, get_attention_modules, CudaGraphRunner
 
     # Step 1: Load model
     print(f"\n1. Loading model from {args.model_path}...")
@@ -118,7 +116,7 @@ def main():
     print(f"   Capture sizes: {sorted(args.capture_sizes)}")
 
     start_time = time.time()
-    hybrid = piecewise_compile_hf(model, sorted(args.capture_sizes))
+    hybrid = cudagraph_compile_hf(model, sorted(args.capture_sizes))
     build_time = time.time() - start_time
 
     print(f"   Built in {build_time:.2f}s")

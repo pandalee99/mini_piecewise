@@ -1,7 +1,8 @@
-"""Test CUDA graph optimization with Qwen3 model.
+"""Tests for CUDA graph optimization with the Qwen3 model.
 
-This test module validates the correctness of the CUDA graph
-framework with a real Qwen3-0.6B-Base model.
+Validates correctness, determinism, and shape consistency of
+CudaGraphRunner with a real Qwen3-0.6B-Base model, plus
+unit tests for the attention detection and PiecePolicy systems.
 
 Usage:
     cd mini_piecewise
@@ -15,9 +16,6 @@ from __future__ import annotations
 
 import sys
 import torch
-
-# Add src to path
-sys.path.insert(0, "/vllm-workspace/mini_piecewise")
 
 # Check dependencies
 try:
@@ -41,9 +39,8 @@ class TestAttentionDetectors:
 
     def test_qwen_attention_detector(self):
         """Test Qwen attention detector."""
-        from src.config import qwen_attention_detector
+        from mini_piecewise.config import qwen_attention_detector
 
-        # Mock module with Qwen attention class name
         class Qwen3Attention(torch.nn.Module):
             pass
 
@@ -58,7 +55,7 @@ class TestAttentionDetectors:
 
     def test_llama_attention_detector(self):
         """Test LLaMA attention detector."""
-        from src.config import llama_attention_detector
+        from mini_piecewise.config import llama_attention_detector
 
         class LlamaAttention(torch.nn.Module):
             pass
@@ -74,7 +71,7 @@ class TestAttentionDetectors:
 
     def test_auto_attention_detector(self):
         """Test auto attention detector."""
-        from src.config import auto_attention_detector
+        from mini_piecewise.config import auto_attention_detector
 
         class SomeAttention(torch.nn.Module):
             pass
@@ -93,6 +90,22 @@ class TestAttentionDetectors:
         assert not auto_attention_detector(SomeMLP(), "block.mlp")
         # AttentionMask should be excluded
         assert not auto_attention_detector(AttentionMask(), "block.attention_mask")
+
+    def test_piece_policy_integration(self):
+        """Test that attention_piece_selector returns PiecePolicy."""
+        from mini_piecewise.config import attention_piece_selector, PiecePolicy
+
+        class Qwen3Attention(torch.nn.Module):
+            pass
+
+        class MLPModule(torch.nn.Module):
+            pass
+
+        attn = Qwen3Attention()
+        mlp = MLPModule()
+
+        assert attention_piece_selector(attn, "model.layers.0.self_attn") == PiecePolicy.EAGER
+        assert attention_piece_selector(mlp, "model.layers.0.mlp") == PiecePolicy.CAPTURE
 
 
 class TestQwen3CudaGraph:
@@ -114,7 +127,7 @@ class TestQwen3CudaGraph:
             return
 
         from transformers import AutoModelForCausalLM
-        from src.hf_wrapper import get_attention_modules
+        from mini_piecewise import get_attention_modules
 
         model = AutoModelForCausalLM.from_pretrained(
             "/vllm-workspace/Qwen3-0.6B-Base",
@@ -143,7 +156,7 @@ class TestQwen3CudaGraph:
             return
 
         from transformers import AutoModelForCausalLM
-        from src.hf_wrapper import cudagraph_compile_hf
+        from mini_piecewise import cudagraph_compile_hf, CudaGraphRunner
 
         model = AutoModelForCausalLM.from_pretrained(
             "/vllm-workspace/Qwen3-0.6B-Base",
@@ -153,6 +166,9 @@ class TestQwen3CudaGraph:
 
         capture_sizes = [32, 64]
         runner = cudagraph_compile_hf(model, capture_sizes)
+
+        # Verify it's a CudaGraphRunner
+        assert isinstance(runner, CudaGraphRunner)
 
         # Check initial state
         assert not runner._captured, "Should not be captured initially"
@@ -165,6 +181,11 @@ class TestQwen3CudaGraph:
         assert len(runner._entries) == len(capture_sizes), \
             f"Should have {len(capture_sizes)} entries"
 
+        # Test summary
+        summary = runner.summary()
+        assert summary["captured"] is True
+        assert summary["num_entries"] == 2
+
         del model, runner
         torch.cuda.empty_cache()
 
@@ -176,7 +197,7 @@ class TestQwen3CudaGraph:
             return
 
         from transformers import AutoModelForCausalLM
-        from src.hf_wrapper import cudagraph_compile_hf
+        from mini_piecewise import cudagraph_compile_hf
 
         model = AutoModelForCausalLM.from_pretrained(
             "/vllm-workspace/Qwen3-0.6B-Base",
@@ -225,7 +246,7 @@ class TestQwen3CudaGraph:
             return
 
         from transformers import AutoModelForCausalLM
-        from src.hf_wrapper import cudagraph_compile_hf
+        from mini_piecewise import cudagraph_compile_hf
 
         model = AutoModelForCausalLM.from_pretrained(
             "/vllm-workspace/Qwen3-0.6B-Base",
@@ -262,7 +283,7 @@ class TestQwen3CudaGraph:
             return
 
         from transformers import AutoModelForCausalLM
-        from src.hf_wrapper import cudagraph_compile_hf
+        from mini_piecewise import cudagraph_compile_hf
 
         model = AutoModelForCausalLM.from_pretrained(
             "/vllm-workspace/Qwen3-0.6B-Base",
@@ -303,6 +324,7 @@ def run_all_tests():
         ("test_qwen_attention_detector", detector_tests.test_qwen_attention_detector),
         ("test_llama_attention_detector", detector_tests.test_llama_attention_detector),
         ("test_auto_attention_detector", detector_tests.test_auto_attention_detector),
+        ("test_piece_policy_integration", detector_tests.test_piece_policy_integration),
     ]
 
     # Qwen3 tests (require deps)

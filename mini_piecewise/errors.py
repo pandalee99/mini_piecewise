@@ -1,5 +1,5 @@
 class PiecewiseHybridError(RuntimeError):
-    """Base error for sglang_min_piecewise."""
+    """Base exception for the mini_piecewise framework."""
 
 
 class CudaNotAvailableError(PiecewiseHybridError):
@@ -12,3 +12,11 @@ class CaptureNotPerformedError(PiecewiseHybridError):
 
 class ShapeOutOfRangeError(PiecewiseHybridError):
     """Raised when runtime shape is larger than max capture size."""
+
+
+class RecaptureError(PiecewiseHybridError):
+    """Raised when re-capture fails or is not supported."""
+
+
+class FreeError(PiecewiseHybridError):
+    """Raised when freeing captured resources fails."""

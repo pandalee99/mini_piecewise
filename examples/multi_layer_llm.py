@@ -1,17 +1,12 @@
 #!/usr/bin/env python3
-"""Multi-Layer LLM Example (Piecewise FX approach).
+"""Piecewise CUDA Graph with a multi-layer transformer model.
 
-This example demonstrates using the FX-based piecewise CUDA graph approach
-with a multi-layer LLM model. This approach works for models that can be
-traced by torch.fx.
+Demonstrates FX-based piecewise CUDA graph optimization on a
+multi-layer decoder model. Each attention layer is isolated as an
+eager piece, while embedding, MLP, and normalization subgraphs
+are captured with CUDA graphs for reduced kernel launch overhead.
 
-For HuggingFace models (which have dynamic control flow), use the
-HFCudaGraphRunner approach instead - see qwen3_example.py.
-
-Key concepts:
-- Each attention layer becomes a separate "eager" piece
-- All other computations (embedding, MLP, norms) are grouped into CUDA graph pieces
-- The framework automatically handles the stitching
+For HuggingFace models, use the CudaGraphRunner approach instead.
 
 Usage:
     cd /vllm-workspace/mini_piecewise
@@ -22,15 +17,12 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import sys
 import time
-
-sys.path.insert(0, "/vllm-workspace/mini_piecewise")
 
 import torch
 import torch.nn as nn
 
-from src import PiecewiseHybridConfig, make_piecewise_hybrid_model
+from mini_piecewise import PiecewiseHybridConfig, PiecePolicy, make_piecewise_hybrid_model
 
 
 class RMSNorm(nn.Module):
@@ -202,7 +194,7 @@ def main():
 
     # Show split structure
     print(f"\nFX split structure ({len(hybrid.items)} pieces):")
-    attn_count = sum(1 for item in hybrid.items if item.is_attention_piece)
+    attn_count = sum(1 for item in hybrid.items if item.policy == PiecePolicy.EAGER)
     cuda_count = len(hybrid.items) - attn_count
     print(f"  Attention pieces (eager): {attn_count}")
     print(f"  CUDA Graph pieces: {cuda_count}")

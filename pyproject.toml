@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mini-piecewise"
-version = "0.1.0"
-description = "A minimal framework for CUDA graph optimization in LLM inference"
+version = "0.2.0"
+description = "A general-purpose framework for CUDA graph optimization in LLM inference"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.8"
@@ -37,7 +37,7 @@ Homepage = "https://github.com/your-org/mini-piecewise"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["src*"]
+include = ["mini_piecewise*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

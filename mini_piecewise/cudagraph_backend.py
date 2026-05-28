@@ -26,17 +26,19 @@ class _Entry:
 
 
 class CUDAGraphPiece(torch.nn.Module):
-    """Capture/replay CUDA Graph for one FX piece (submodule).
+    """CUDA Graph capture/replay backend for a single FX submodule piece.
 
-    This module is designed to wrap a single piece GraphModule.
+    Wraps a GraphModule piece with CUDA graph capture and replay.
+    Buckets runtime sizes against a set of pre-captured static sizes,
+    padding inputs to the nearest bucket and slicing outputs back
+    to the original runtime size.
 
-    Minimal constraints:
-    - Buckets by one integer runtime size.
-    - Runtime size is inferred from the first tensor arg (dim0) by default.
-    - Inputs/outputs are assumed to be token-major: [T, ...] where T is dynamic.
+    Runtime size is inferred from the first tensor argument's dim0
+    by default. Inputs and outputs are assumed to be token-major:
+    [T, ...] where T is the dynamic sequence dimension.
 
-    The wrapper always copies runtime inputs into static buffers so that input
-    addresses are stable even when upstream pieces run eager.
+    All runtime inputs are copied into pre-allocated static buffers
+    before replay to ensure address stability across calls.
     """
 
     def __init__(
@@ -98,10 +100,12 @@ class CUDAGraphPiece(torch.nn.Module):
         recorded_kwargs: dict[str, Any],
         runtime_size: int,
     ) -> None:
-        """Capture one bucket using recorded runtime args/kwargs.
+        """Capture a single bucket using recorded runtime inputs.
 
-        We allocate static buffers based on recorded inputs and then capture
-        the wrapped function with those static buffers.
+        Allocates static buffers based on the recorded input shapes and
+        captures the wrapped function against those buffers. Valid data
+        must be materialized before warmup/capture to avoid device-side
+        asserts in modules like Embedding that index into tensors.
         """
 
         if static_size in self._entries:
@@ -111,10 +115,10 @@ class CUDAGraphPiece(torch.nn.Module):
         static_args = tree_make_static_like(recorded_args, static_size=static_size, runtime_size=runtime_size)
         static_kwargs = tree_make_static_like(recorded_kwargs, static_size=static_size, runtime_size=runtime_size)
 
-        # IMPORTANT: tree_make_static_like uses torch.empty/empty_like.
-        # We must materialize valid contents before running warmup/capture.
-        # Otherwise modules like Embedding may see garbage indices and trigger
-        # device-side asserts.
+        # Static buffers must contain valid data before warmup/capture.
+        # tree_make_static_like allocates with torch.empty, which yields
+        # uninitialized memory. Modules like Embedding may index into
+        # these tensors and trigger device-side asserts on garbage values.
         with torch.inference_mode():
             tree_copy_into(
                 static_args,
@@ -174,8 +178,8 @@ class CUDAGraphPiece(torch.nn.Module):
                 f"No capture entry for static_size={static_size}. Did you call capture()?"
             )
 
-        # Important: if static buffers were created under inference_mode, in-place updates
-        # are only allowed inside inference_mode.
+        # In-place updates to inference-mode-allocated buffers
+            # must occur under inference_mode.
         with torch.inference_mode():
             tree_copy_into(
                 entry.static_args,
@@ -204,3 +208,24 @@ class CUDAGraphPiece(torch.nn.Module):
             out = tree_slice_dim0(entry.static_output, runtime_size=runtime_size, static_size=static_size)
 
         return out
+
+    def info(self) -> dict[str, Any]:
+        """Return diagnostic info about captured entries."""
+        captured_sizes = sorted(self._entries.keys())
+        # Estimate memory from static buffers
+        mem_estimate = 0
+        for entry in self._entries.values():
+            for t in self._iter_tensors((entry.static_args, entry.static_kwargs, entry.static_output)):
+                mem_estimate += t.nelement() * t.element_size()
+        return {
+            "backend": "CUDAGraphPiece",
+            "fn_type": type(self._fn).__name__,
+            "capture_sizes": captured_sizes,
+            "num_entries": len(self._entries),
+            "memory_estimate_bytes": mem_estimate,
+        }
+
+    def free(self) -> None:
+        """Release all captured graph memory."""
+        self._entries.clear()
+        self._installed = False

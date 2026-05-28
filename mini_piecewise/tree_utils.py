@@ -53,13 +53,11 @@ def tree_make_static_like(
     static_size: int,
     runtime_size: int,
 ) -> Any:
-    """Create a static-buffer tree from a sample input tree.
+    """Allocate static-buffer tree matching the shape of a sample input tree.
 
-    Heuristic:
-    - If a tensor has dim0 == runtime_size, we expand dim0 to static_size.
-    - Otherwise, keep shape unchanged.
-
-    This matches common token-major layouts: [T, ...].
+    For tensors whose dim0 equals runtime_size, dim0 is expanded to
+    static_size. All other tensors keep their original shape. This
+    matches the common token-major layout: [T, ...].
     """
 
     def _mk(x: Any) -> Any:

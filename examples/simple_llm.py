@@ -1,17 +1,12 @@
 #!/usr/bin/env python3
-"""Simple LLM Block Example (Piecewise FX approach).
+"""Piecewise CUDA Graph with a basic transformer model.
 
-This example demonstrates the FX-based piecewise CUDA graph approach
-with a simple LLM-style transformer block. This approach works for
-models that can be traced by torch.fx.
+Demonstrates FX-based piecewise CUDA graph optimization on a model
+that is fully traceable by torch.fx. Attention modules are detected
+automatically and kept in eager mode; all other subgraphs are captured.
 
-For HuggingFace models (which have dynamic control flow), use the
-HFCudaGraphRunner approach instead - see qwen3_example.py.
-
-Key concepts:
-1. torch.fx traces the model into a graph
-2. Attention modules are automatically detected and kept eager
-3. Other parts use CUDA graphs for faster execution
+For HuggingFace models (which contain dynamic control flow incompatible
+with FX tracing), use the CudaGraphRunner approach instead.
 
 Usage:
     cd /vllm-workspace/mini_piecewise
@@ -20,13 +15,10 @@ Usage:
 
 from __future__ import annotations
 
-import sys
-sys.path.insert(0, "/vllm-workspace/mini_piecewise")
-
 import torch
 import torch.nn as nn
 
-from src import PiecewiseHybridConfig, make_piecewise_hybrid_model
+from mini_piecewise import PiecewiseHybridConfig, PiecePolicy, make_piecewise_hybrid_model
 
 
 class SimpleAttention(nn.Module):
@@ -156,7 +148,7 @@ def main():
     # Step 4: Show split structure
     print(f"\nFX split structure ({len(hybrid.items)} pieces):")
     for item in hybrid.items:
-        mode = "EAGER (attention)" if item.is_attention_piece else "CUDA Graph"
+        mode = "EAGER (attention)" if item.policy == PiecePolicy.EAGER else "CUDA Graph"
         print(f"  {item.submod_name}: {mode}")
 
     # Step 5: Capture CUDA graphs
